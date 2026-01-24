@@ -1,0 +1,5 @@
+{
+  "name": "CuteGo Web",
+  "description": "A cute, jelly-themed Go (Weiqi) game with Single Player, AI, and Online Multiplayer modes.",
+  "requestFramePermissions": []
+}
