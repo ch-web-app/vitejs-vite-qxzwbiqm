@@ -81,36 +81,52 @@ const App: React.FC = () => {
 
     newPeer.on('connection', (connection: any) => {
       if (mode === GameMode.OnlineHost) {
-        setupConnection(connection);
-        setNetStatus('Connected!');
-        // Host is Black
-        setMyNetPlayer(Player.Black);
-        // Send initial config
-        setTimeout(() => {
+        setNetStatus('Connecting to opponent...');
+        // Pass a callback to run ONLY when connection is fully OPEN
+        setupConnection(connection, () => {
+            setNetStatus('Connected!');
+            setMyNetPlayer(Player.Black);
+            // Send initial config safely
             connection.send({ type: 'START', size, player: Player.White });
-        }, 500);
+        });
       }
     });
 
     newPeer.on('error', (err: any) => {
       console.error(err);
-      setNetStatus('Connection Error');
+      setNetStatus('Connection Error: ' + err.type);
     });
   };
 
   const joinGame = () => {
     if (!remotePeerId || !peerRef.current) return;
+    
+    // IMPORTANT: Trim whitespace to prevent ID mismatch errors
+    const cleanId = remotePeerId.trim();
+    if (!cleanId) return;
+
     setNetStatus('Connecting...');
-    const connection = peerRef.current.connect(remotePeerId);
-    setupConnection(connection);
+    const connection = peerRef.current.connect(cleanId, { reliable: true });
+    
+    setupConnection(connection, () => {
+        setNetStatus('Connected! Waiting for host...');
+    });
   };
 
-  const setupConnection = (connection: any) => {
+  const setupConnection = (connection: any, onOpen?: () => void) => {
     setConn(connection);
 
-    connection.on('open', () => {
-      setNetStatus('Connected!');
-    });
+    const handleOpen = () => {
+      console.log("Connection established");
+      if (onOpen) onOpen();
+    };
+
+    // Check if already open (race condition fix)
+    if (connection.open) {
+      handleOpen();
+    } else {
+      connection.on('open', handleOpen);
+    }
 
     connection.on('data', (data: any) => {
       if (data.type === 'START') {
@@ -119,34 +135,10 @@ const App: React.FC = () => {
         setNetStatus('Game Started!');
         resetGame(data.size);
       } else if (data.type === 'MOVE') {
-        // Apply remote move
-        // Note: We need to trust the state sync or just apply the logic blindly. 
-        // For prototype, apply logic based on current local board.
-        // We need to use functional state update to ensure we have latest board
-        setBoard(prevBoard => {
-            // Need to determine WHO moved based on whose turn it is
-            // It should be the *current* player before we toggle
-            // Actually, we can just infer from turn.
-            
-            // However, inside this closure 'currentPlayer' might be stale if not careful.
-            // Better to rely on the fact that if we receive a move, it's the other person's turn.
-            // But we need the 'player' enum. 
-            
-            // To be safe, let's just use the `currentPlayer` from the render scope? 
-            // No, that's risky in async. 
-            // Simplified: The remote sends coordinates. We apply it for the current player.
-            
-            // HACK: To access current player inside the callback properly without a ref, 
-            // we will assume valid turn order.
-            
-            return prevBoard; // Placeholder, real logic below in a useEffect or ref
-        });
-        
-        // Wait, 'data' callback closure issue.
-        // Let's handle data processing via a useEffect dependent on 'conn' 
-        // or simple Ref for board state if needed.
-        // EASIER WAY: Dispatch an event or set a specific state "pendingRemoteMove"
-        handleRemoteMove(data.pos);
+         handleRemoteMove(data.pos);
+      } else if (data.type === 'SYNC_SIZE') {
+          setSize(data.size);
+          resetGame(data.size);
       }
     });
     
@@ -154,13 +146,17 @@ const App: React.FC = () => {
         setNetStatus('Peer Disconnected');
         setConn(null);
     });
+
+    connection.on('error', (err: any) => {
+        console.error("Connection Error:", err);
+        setNetStatus('Conn Error');
+    });
   };
 
   // Helper to handle remote move avoiding closure staleness
   const handleRemoteMove = (pos: Position) => {
      setBoard(currentBoard => {
-         // We need the player color. We can deduce it by counting stones or keeping track in a ref.
-         // Or simpler: If I am Black, remote is White.
+         // Determine who moved. If I am Black, remote is White.
          let mover = Player.Black;
          setMyNetPlayer(me => {
              if (me) mover = me === Player.Black ? Player.White : Player.Black;
@@ -185,7 +181,7 @@ const App: React.FC = () => {
   
   // Re-sync size changes if hosting
   useEffect(() => {
-     if (gameMode === GameMode.OnlineHost && conn) {
+     if (gameMode === GameMode.OnlineHost && conn && conn.open) {
          conn.send({ type: 'SYNC_SIZE', size });
          resetGame(size);
      }
