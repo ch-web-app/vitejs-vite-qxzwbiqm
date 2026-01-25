@@ -74,10 +74,12 @@ const App: React.FC = () => {
         peerRef.current = null;
     }
 
-    setNetStatus('Initializing Network...');
+    setNetStatus('正在连接服务器...');
 
-    // 2. Generate a local ID to reduce server load/errors
-    const localId = 'cutego-' + Math.random().toString(36).substr(2, 6);
+    // 2. Generate Custom ID locally
+    // Adding a timestamp component helps reduce collision probability if the server hasn't cleared the old ID yet
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000); 
+    const customId = `cutego-${randomSuffix}`;
 
     const peerConfig = {
       debug: 1, 
@@ -90,21 +92,23 @@ const App: React.FC = () => {
     };
 
     try {
-        const newPeer = new window.Peer(localId, peerConfig);
+        // Use the custom ID
+        const newPeer = new window.Peer(customId, peerConfig);
         peerRef.current = newPeer;
 
         newPeer.on('open', (id: string) => {
           console.log('My Peer ID is: ' + id);
           setPeerId(id);
-          setNetStatus(mode === GameMode.OnlineHost ? 'Waiting for opponent...' : 'Ready to join...');
+          setNetStatus(mode === GameMode.OnlineHost ? '等待对手加入...' : '准备连接...');
         });
 
         newPeer.on('connection', (connection: any) => {
           if (mode === GameMode.OnlineHost) {
-            setNetStatus('Connecting to opponent...');
+            setNetStatus('正在连接对手...');
             setupConnection(connection, () => {
-                setNetStatus('Connected!');
+                setNetStatus('已连接！');
                 setMyNetPlayer(Player.Black);
+                // Host is Black, sends start signal to White
                 connection.send({ type: 'START', size, player: Player.White });
             });
           }
@@ -113,22 +117,24 @@ const App: React.FC = () => {
         newPeer.on('error', (err: any) => {
           console.error('Peer error:', err);
           if (err.type === 'unavailable-id') {
-              initPeer(mode);
-          } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'browser-incompatible') {
-              setNetStatus(`Network Error (${err.type}). Please Retry.`);
+              // If ID is taken, try again with a new random ID
+              setTimeout(() => initPeer(mode), 500);
+          } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+              setNetStatus(`网络错误 (${err.type}). 请重试.`);
           } else {
               console.warn("Minor peer error", err);
           }
         });
         
         newPeer.on('disconnected', () => {
+             // Try to reconnect to the server if disconnected
              if (peerRef.current && !peerRef.current.destroyed) {
                  peerRef.current.reconnect();
              }
         });
 
     } catch (e) {
-        setNetStatus('Failed to load PeerJS');
+        setNetStatus('PeerJS 组件加载失败');
         console.error(e);
     }
   };
@@ -139,22 +145,22 @@ const App: React.FC = () => {
     const cleanId = remotePeerId.trim();
     if (!cleanId) return;
 
-    setNetStatus('Connecting...');
+    setNetStatus('正在连接...');
     
     try {
         const connection = peerRef.current.connect(cleanId, { reliable: true });
         
         if (!connection) {
-            setNetStatus('Connection Failed (local)');
+            setNetStatus('连接创建失败');
             return;
         }
 
         setupConnection(connection, () => {
-            setNetStatus('Connected! Waiting for host...');
+            setNetStatus('已连接！等待房主开始...');
         });
     } catch (e) {
         console.error(e);
-        setNetStatus('Connection Failed');
+        setNetStatus('连接异常');
     }
   };
 
@@ -173,13 +179,14 @@ const App: React.FC = () => {
     }
 
     connection.on('data', (data: any) => {
+      console.log("Received data:", data);
       if (data.type === 'START') {
         setSize(data.size);
         setMyNetPlayer(data.player);
-        setNetStatus('Game Started!');
+        setNetStatus('游戏开始！');
         resetGame(data.size);
       } else if (data.type === 'MOVE') {
-         // Now we accept the explicit player color from the message
+         // CRITICAL FIX: Accept explicit player color from the message
          handleRemoteMove(data.pos, data.player);
       } else if (data.type === 'SYNC_SIZE') {
           setSize(data.size);
@@ -188,25 +195,27 @@ const App: React.FC = () => {
     });
     
     connection.on('close', () => {
-        setNetStatus('Peer Disconnected');
+        setNetStatus('对方已断开');
         setConn(null);
     });
 
     connection.on('error', (err: any) => {
         console.error("Connection Error:", err);
-        setNetStatus('Conn Error');
+        setNetStatus('连接中断');
     });
   };
 
-  // Fixed: Accept explicit player type to avoid state inference issues
+  // Fixed: Accept explicit player type to ensure correct color is rendered
   const handleRemoteMove = (pos: Position, playerWhoMoved: Player) => {
      setBoard(currentBoard => {
          const res = executeMove(currentBoard, size, pos, playerWhoMoved);
          if (res.valid) {
-             // Force update current player to the OTHER player locally
+             // Force update current player to the OTHER player locally so I can move
              const nextPlayer = playerWhoMoved === Player.Black ? Player.White : Player.Black;
              setCurrentPlayer(nextPlayer);
              return res.newBoard;
+         } else {
+             console.warn("Remote move was invalid/out of sync", pos);
          }
          return currentBoard;
      });
@@ -321,9 +330,9 @@ const App: React.FC = () => {
 
       {(gameMode === GameMode.OnlineHost || gameMode === GameMode.OnlineJoin) && !conn && (
           <div className="bg-purple-50 p-4 text-center border-b border-purple-100 animate-in fade-in slide-in-from-top-4">
-              <p className={`font-bold mb-2 ${netStatus.includes('Error') ? 'text-red-600' : 'text-purple-900'}`}>{netStatus}</p>
+              <p className={`font-bold mb-2 ${netStatus.includes('错误') ? 'text-red-600' : 'text-purple-900'}`}>{netStatus}</p>
               
-              {netStatus.includes('Error') && (
+              {netStatus.includes('错误') && (
                    <button 
                      onClick={() => initPeer(gameMode)}
                      className="flex items-center gap-2 mx-auto bg-white text-red-600 px-4 py-2 rounded-lg border border-red-200 shadow-sm hover:bg-red-50 font-bold mb-4"
@@ -332,18 +341,18 @@ const App: React.FC = () => {
                    </button>
               )}
 
-              {gameMode === GameMode.OnlineHost && peerId && !netStatus.includes('Error') && (
+              {gameMode === GameMode.OnlineHost && peerId && !netStatus.includes('错误') && (
                   <div className="flex flex-col items-center gap-2">
                       <div className="text-sm text-purple-700 mb-1">将此 ID 发送给朋友：</div>
                       <div className="flex items-center justify-center gap-2">
-                          <code className="bg-white px-3 py-2 rounded border border-purple-200 text-purple-800 font-mono text-lg">{peerId}</code>
+                          <code className="bg-white px-3 py-2 rounded border border-purple-200 text-purple-800 font-mono text-lg select-all">{peerId}</code>
                           <button onClick={copyToClipboard} className="text-purple-600 hover:bg-purple-100 p-2 rounded bg-white border border-purple-200">
                               {copied ? <CheckCircle2 size={20} /> : <Copy size={20} />}
                           </button>
                       </div>
                   </div>
               )}
-              {gameMode === GameMode.OnlineJoin && !netStatus.includes('Error') && (
+              {gameMode === GameMode.OnlineJoin && !netStatus.includes('错误') && (
                   <div className="flex justify-center gap-2 mt-2">
                       <input 
                         value={remotePeerId}
