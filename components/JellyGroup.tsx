@@ -1,17 +1,18 @@
 import React from 'react';
-import { Player, Position, posKey, isSamePos } from '../types';
+import { Player, Position, posKey, isSamePos, BoardState } from '../types';
 
 interface JellyLayerProps {
   stones: Position[];
   color: Player;
   cellSize: number;
   lastMove?: Position | null;
+  board: BoardState; // Added to check for obstructions
 }
 
 // Helper to check if a specific position exists in the set
 const hasPos = (set: Set<string>, r: number, c: number) => set.has(`${r},${c}`);
 
-export const JellyLayer: React.FC<JellyLayerProps> = ({ stones, color, cellSize, lastMove }) => {
+export const JellyLayer: React.FC<JellyLayerProps> = ({ stones, color, cellSize, lastMove, board }) => {
   const stoneSet = new Set(stones.map(posKey));
   
   // Radius for the main stone body
@@ -33,13 +34,11 @@ export const JellyLayer: React.FC<JellyLayerProps> = ({ stones, color, cellSize,
     const cy = (s.row + 1) * cellSize;
     const key = posKey(s);
     
-    // Check neighbors
+    // Check neighbors (My stones)
     const hasRight = hasPos(stoneSet, s.row, s.col + 1);
     const hasDown = hasPos(stoneSet, s.row + 1, s.col);
-    const hasLeft = hasPos(stoneSet, s.row, s.col - 1);
-    const hasUp = hasPos(stoneSet, s.row - 1, s.col);
-
-    // Check Diagonals
+    
+    // Check Diagonals (My stones)
     const hasDownRight = hasPos(stoneSet, s.row + 1, s.col + 1);
     const hasDownLeft = hasPos(stoneSet, s.row + 1, s.col - 1);
 
@@ -52,7 +51,6 @@ export const JellyLayer: React.FC<JellyLayerProps> = ({ stones, color, cellSize,
     );
 
     // 2. Render Orthogonal "Fused" Connections (Thick Rects)
-    // We only draw Right and Down to avoid duplicates
     if (hasRight) {
         const isRightNew = isSamePos({row: s.row, col: s.col + 1}, lastMove);
         shapes.push(
@@ -80,41 +78,48 @@ export const JellyLayer: React.FC<JellyLayerProps> = ({ stones, color, cellSize,
     }
 
     // 3. Render Diagonal "Related" Connections (Thin Lines)
-    // Logic: Only connect diagonally if they are NOT sharing a common orthogonal neighbor.
-    // This prevents drawing an X inside a solid 2x2 block.
+    // Rule: Only draw diagonal if the path is NOT blocked by ANY stone (friend or foe).
+    // This represents "Qi" (breath/connection) which cannot pass through occupied points.
     
     // Case: Down-Right
-    if (hasDownRight && !hasRight && !hasDown) {
-        // Draw line to bottom-right
-        const endX = cx + cellSize;
-        const endY = cy + cellSize;
-        shapes.push(
-            <line 
-                key={`diag-dr-${key}`}
-                x1={cx} y1={cy}
-                x2={endX} y2={endY}
-                stroke={fillColor}
-                strokeWidth={thinLink}
-                strokeLinecap="round"
-            />
-        );
+    if (hasDownRight) {
+        const rightKey = `${s.row},${s.col + 1}`;
+        const downKey = `${s.row + 1},${s.col}`;
+        // Connection is broken if ANY stone exists in the "cross" points
+        const isBlocked = board.has(rightKey) || board.has(downKey);
+        
+        if (!isBlocked) {
+            shapes.push(
+                <line 
+                    key={`diag-dr-${key}`}
+                    x1={cx} y1={cy}
+                    x2={cx + cellSize} y2={cy + cellSize}
+                    stroke={fillColor}
+                    strokeWidth={thinLink}
+                    strokeLinecap="round"
+                />
+            );
+        }
     }
 
     // Case: Down-Left
-    if (hasDownLeft && !hasLeft && !hasDown) {
-        // Draw line to bottom-left
-        const endX = cx - cellSize;
-        const endY = cy + cellSize;
-        shapes.push(
-            <line 
-                key={`diag-dl-${key}`}
-                x1={cx} y1={cy}
-                x2={endX} y2={endY}
-                stroke={fillColor}
-                strokeWidth={thinLink}
-                strokeLinecap="round"
-            />
-        );
+    if (hasDownLeft) {
+        const leftKey = `${s.row},${s.col - 1}`;
+        const downKey = `${s.row + 1},${s.col}`;
+        const isBlocked = board.has(leftKey) || board.has(downKey);
+
+        if (!isBlocked) {
+            shapes.push(
+                <line 
+                    key={`diag-dl-${key}`}
+                    x1={cx} y1={cy}
+                    x2={cx - cellSize} y2={cy + cellSize}
+                    stroke={fillColor}
+                    strokeWidth={thinLink}
+                    strokeLinecap="round"
+                />
+            );
+        }
     }
   });
 
