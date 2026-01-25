@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BoardState, GameMode, Player, Position, BOARD_SIZES, posKey } from './types';
 import { GoBoard } from './components/GoBoard';
 import { executeMove, getAIThinkingMove } from './services/goLogic';
-import { Wifi, Cpu, User, ArrowLeft, Copy, CheckCircle2 } from 'lucide-react';
+import { Wifi, Cpu, User, ArrowLeft, Copy, CheckCircle2, RefreshCw } from 'lucide-react';
 
 const App: React.FC = () => {
   // Game State
@@ -70,8 +70,18 @@ const App: React.FC = () => {
   const initPeer = (mode: GameMode) => {
     if (peerRef.current) peerRef.current.destroy();
 
-    // Use a random ID for host, or let PeerJS assign one
-    const newPeer = new window.Peer(null, { debug: 2 });
+    // Configure Peer with explicit STUN servers to improve connectivity
+    const peerConfig = {
+      debug: 2,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+      }
+    };
+
+    const newPeer = new window.Peer(null, peerConfig);
     peerRef.current = newPeer;
 
     newPeer.on('open', (id: string) => {
@@ -94,7 +104,11 @@ const App: React.FC = () => {
 
     newPeer.on('error', (err: any) => {
       console.error(err);
-      setNetStatus('Connection Error: ' + err.type);
+      if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+          setNetStatus('Network Error. Please retry.');
+      } else {
+          setNetStatus('Error: ' + err.type);
+      }
     });
   };
 
@@ -288,8 +302,19 @@ const App: React.FC = () => {
       {/* Online Lobby Area */}
       {(gameMode === GameMode.OnlineHost || gameMode === GameMode.OnlineJoin) && !conn && (
           <div className="bg-purple-50 p-4 text-center border-b border-purple-100 animate-in fade-in slide-in-from-top-4">
-              <p className="text-purple-900 font-bold mb-2">{netStatus}</p>
-              {gameMode === GameMode.OnlineHost && peerId && (
+              <p className={`font-bold mb-2 ${netStatus.includes('Error') ? 'text-red-600' : 'text-purple-900'}`}>{netStatus}</p>
+              
+              {/* Retry Logic */}
+              {netStatus.includes('Error') && (
+                   <button 
+                     onClick={() => initPeer(gameMode)}
+                     className="flex items-center gap-2 mx-auto bg-white text-red-600 px-4 py-2 rounded-lg border border-red-200 shadow-sm hover:bg-red-50 font-bold mb-4"
+                   >
+                     <RefreshCw size={16} /> Retry Connection
+                   </button>
+              )}
+
+              {gameMode === GameMode.OnlineHost && peerId && !netStatus.includes('Error') && (
                   <div className="flex items-center justify-center gap-2">
                       <code className="bg-white px-3 py-1 rounded border border-purple-200 text-purple-800">{peerId}</code>
                       <button onClick={copyToClipboard} className="text-purple-600 hover:bg-purple-100 p-1 rounded">
@@ -297,7 +322,7 @@ const App: React.FC = () => {
                       </button>
                   </div>
               )}
-              {gameMode === GameMode.OnlineJoin && (
+              {gameMode === GameMode.OnlineJoin && !netStatus.includes('Error') && (
                   <div className="flex justify-center gap-2 mt-2">
                       <input 
                         value={remotePeerId}
