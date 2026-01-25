@@ -98,6 +98,10 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             from { transform: scaleY(0); opacity: 0; }
             to { transform: scaleY(1); opacity: 1; }
          }
+         @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+         }
          .animate-connect-h {
             transform-box: fill-box;
             transform-origin: center;
