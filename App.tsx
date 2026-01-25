@@ -11,6 +11,7 @@ const App: React.FC = () => {
   const [currentPlayer, setCurrentPlayer] = useState<Player>(Player.Black);
   const [gameMode, setGameMode] = useState<GameMode | null>(null);
   const [isThinking, setIsThinking] = useState<boolean>(false);
+  const [lastMove, setLastMove] = useState<Position | null>(null);
   
   // Network State
   const [peerId, setPeerId] = useState<string>('');
@@ -28,6 +29,7 @@ const App: React.FC = () => {
     setBoard(new Map());
     setCurrentPlayer(Player.Black);
     setIsThinking(false);
+    setLastMove(null);
     setSize(newSize);
   };
 
@@ -37,6 +39,7 @@ const App: React.FC = () => {
     if (valid) {
       // Update Board
       setBoard(newBoard);
+      setLastMove(pos);
 
       // If online, send move AND the player color explicitly
       if (conn && (gameMode === GameMode.OnlineHost || gameMode === GameMode.OnlineJoin)) {
@@ -54,6 +57,7 @@ const App: React.FC = () => {
           if (aiMove) {
              const aiResult = executeMove(newBoard, size, aiMove, Player.White);
              setBoard(aiResult.newBoard);
+             setLastMove(aiMove);
           }
           setCurrentPlayer(Player.Black);
           setIsThinking(false);
@@ -77,7 +81,6 @@ const App: React.FC = () => {
     setNetStatus('正在连接服务器...');
 
     // 2. Generate Custom ID locally
-    // Adding a timestamp component helps reduce collision probability if the server hasn't cleared the old ID yet
     const randomSuffix = Math.floor(1000 + Math.random() * 9000); 
     const customId = `cutego-${randomSuffix}`;
 
@@ -117,7 +120,6 @@ const App: React.FC = () => {
         newPeer.on('error', (err: any) => {
           console.error('Peer error:', err);
           if (err.type === 'unavailable-id') {
-              // If ID is taken, try again with a new random ID
               setTimeout(() => initPeer(mode), 500);
           } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
               setNetStatus(`网络错误 (${err.type}). 请重试.`);
@@ -127,7 +129,6 @@ const App: React.FC = () => {
         });
         
         newPeer.on('disconnected', () => {
-             // Try to reconnect to the server if disconnected
              if (peerRef.current && !peerRef.current.destroyed) {
                  peerRef.current.reconnect();
              }
@@ -186,7 +187,6 @@ const App: React.FC = () => {
         setNetStatus('游戏开始！');
         resetGame(data.size);
       } else if (data.type === 'MOVE') {
-         // CRITICAL FIX: Accept explicit player color from the message
          handleRemoteMove(data.pos, data.player);
       } else if (data.type === 'SYNC_SIZE') {
           setSize(data.size);
@@ -205,12 +205,11 @@ const App: React.FC = () => {
     });
   };
 
-  // Fixed: Accept explicit player type to ensure correct color is rendered
   const handleRemoteMove = (pos: Position, playerWhoMoved: Player) => {
      setBoard(currentBoard => {
          const res = executeMove(currentBoard, size, pos, playerWhoMoved);
          if (res.valid) {
-             // Force update current player to the OTHER player locally so I can move
+             setLastMove(pos);
              const nextPlayer = playerWhoMoved === Player.Black ? Player.White : Player.Black;
              setCurrentPlayer(nextPlayer);
              return res.newBoard;
@@ -393,6 +392,7 @@ const App: React.FC = () => {
             isThinking={isThinking}
             gameMode={gameMode}
             myPlayerType={myNetPlayer}
+            lastMove={lastMove}
         />
 
         <div className="mt-8 flex gap-4">
