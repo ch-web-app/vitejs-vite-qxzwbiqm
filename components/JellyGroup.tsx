@@ -15,19 +15,25 @@ export const JellyGroup: React.FC<JellyGroupProps> = ({ group, cellSize, lastMov
   // Radius: Slightly larger to account for filter erosion
   const r = cellSize * 0.46; 
   
-  // Bridge thickness: Thinner than the stone to create the "neck" effect
+  // Bridge thickness: Used for the "flesh" fusion
   const bridgeThickness = cellSize * 0.45;
 
-  const fillColor = player === Player.Black ? "#4b5563" : "#ffffff"; // Darker grey for black stones
+  const fillColor = player === Player.Black ? "#4b5563" : "#ffffff"; 
   
+  // "Qi" Line color: distinct from the body to show the connection clearly
+  // For black stones, use a semi-transparent light gray.
+  // For white stones, use a semi-transparent dark gray.
+  const qiLineColor = player === Player.Black ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.15)";
+
   const jellyShapes: React.ReactElement[] = [];
+  const qiLines: React.ReactElement[] = [];
 
   stones.forEach(s => {
     const cx = (s.col + 1) * cellSize;
     const cy = (s.row + 1) * cellSize;
     const key = posKey(s);
 
-    // 1. The Stone
+    // 1. The Stone Body
     jellyShapes.push(
       <circle key={`stone-${key}`} cx={cx} cy={cy} r={r} fill={fillColor} />
     );
@@ -49,8 +55,7 @@ export const JellyGroup: React.FC<JellyGroupProps> = ({ group, cellSize, lastMov
         const isNew = isSamePos(s, lastMove) || isSamePos(rightPos, lastMove);
         const animClass = isNew ? 'animate-connect-h' : '';
 
-        // Rect spans from center to center. Width = cellSize.
-        // It is vertically centered at `cy`.
+        // A. The "Flesh" (Bridge for fusion)
         jellyShapes.push(
             <rect 
                 key={`h-bridge-${key}`}
@@ -62,6 +67,21 @@ export const JellyGroup: React.FC<JellyGroupProps> = ({ group, cellSize, lastMov
                 className={animClass}
             />
         );
+
+        // B. The "Qi" (Skeleton Line)
+        // Drawn separately so it doesn't get blurred by the filter
+        qiLines.push(
+            <line 
+                key={`h-line-${key}`}
+                x1={cx} y1={cy}
+                x2={cx + cellSize} y2={cy}
+                stroke={qiLineColor}
+                strokeWidth={cellSize * 0.1}
+                strokeLinecap="round"
+                // Optional: apply simple fade-in if it's new, but keep it subtle
+                style={{ opacity: isNew ? 0 : 1, animation: isNew ? 'fade-in 0.5s forwards 0.2s' : 'none' }}
+            />
+        );
     }
 
     // --- Vertical Connection ---
@@ -69,8 +89,7 @@ export const JellyGroup: React.FC<JellyGroupProps> = ({ group, cellSize, lastMov
         const isNew = isSamePos(s, lastMove) || isSamePos(downPos, lastMove);
         const animClass = isNew ? 'animate-connect-v' : '';
 
-        // Rect spans from center to center. Height = cellSize.
-        // It is horizontally centered at `cx`.
+        // A. The "Flesh" (Bridge for fusion)
         jellyShapes.push(
             <rect 
                 key={`v-bridge-${key}`}
@@ -82,11 +101,22 @@ export const JellyGroup: React.FC<JellyGroupProps> = ({ group, cellSize, lastMov
                 className={animClass}
             />
         );
+
+        // B. The "Qi" (Skeleton Line)
+        qiLines.push(
+            <line 
+                key={`v-line-${key}`}
+                x1={cx} y1={cy}
+                x2={cx} y2={cy + cellSize}
+                stroke={qiLineColor}
+                strokeWidth={cellSize * 0.1}
+                strokeLinecap="round"
+                style={{ opacity: isNew ? 0 : 1, animation: isNew ? 'fade-in 0.5s forwards 0.2s' : 'none' }}
+            />
+        );
     }
 
     // --- 2x2 Gap Filler ---
-    // With the gooey filter, the gap usually fills itself if the blur is high enough,
-    // but adding a small filler ensures it doesn't look like a donut.
     if (hasRight && hasDown && stoneSet.has(diagKey)) {
         const gapSize = cellSize * 0.5;
         jellyShapes.push(
@@ -101,9 +131,17 @@ export const JellyGroup: React.FC<JellyGroupProps> = ({ group, cellSize, lastMov
   });
 
   return (
-    // Apply the Gooey filter to the entire group
-    <g filter="url(#gooey-stone)">
-        {jellyShapes}
+    <g>
+        {/* Layer 1: The organic fused shape (The "Flesh") */}
+        <g filter="url(#gooey-stone)">
+            {jellyShapes}
+        </g>
+        
+        {/* Layer 2: The internal connection lines (The "Qi" / Skeleton) */}
+        {/* Rendered on top, crisp and sharp */}
+        <g pointerEvents="none">
+            {qiLines}
+        </g>
     </g>
   );
 };
