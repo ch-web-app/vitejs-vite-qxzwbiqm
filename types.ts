@@ -22,6 +22,11 @@ export const keyToPos = (k: string): Position => {
   return { row, col };
 };
 
+export const isSamePos = (a: Position | null | undefined, b: Position | null | undefined): boolean => {
+  if (!a || !b) return false;
+  return a.row === b.row && a.col === b.col;
+};
+
 export type BoardState = Map<string, Player>;
 
 export interface GroupInfo {
