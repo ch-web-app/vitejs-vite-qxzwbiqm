@@ -24,18 +24,37 @@ export const GoBoard: React.FC<GoBoardProps> = ({
 
   // --- Calculations ---
   
-  // 1. Calculate Faces (Expressions) - Still based on logical groups
-  const expressions = useMemo(() => {
+  // 1. Calculate Groups, Expressions, and Atari Points
+  const { expressions, atariPoints, blackStones, whiteStones } = useMemo(() => {
     const allGroups = getAllGroups(board, size);
     const exprMap = new Map<string, string>(); // leaderPos -> expression
+    const atariSet = new Set<string>(); // "row,col" of the liberty itself
+    
+    const b: Position[] = [];
+    const w: Position[] = [];
 
     allGroups.forEach(g => {
       const liberties = g.liberties.length;
       let face = expNormal;
-      if (liberties === 1) face = expDanger;
-      else if (liberties >= 4) face = expHappy;
       
-      // Find "leader" (top-left most stone) to draw the face on
+      if (liberties === 1) {
+          face = expDanger;
+          // Add the single liberty to atari set to show a warning marker
+          if (g.liberties[0]) {
+             atariSet.add(posKey(g.liberties[0]));
+          }
+      } else if (liberties >= 4) {
+          face = expHappy;
+      }
+      
+      // Separate stones for layers
+      if (g.player === Player.Black) {
+          g.stones.forEach(s => b.push(s));
+      } else {
+          g.stones.forEach(s => w.push(s));
+      }
+      
+      // Find "leader" for face
       const sortedStones = [...g.stones].sort((a, b) => {
         if (a.row !== b.row) return a.row - b.row;
         return a.col - b.col;
@@ -45,22 +64,13 @@ export const GoBoard: React.FC<GoBoardProps> = ({
       }
     });
 
-    return exprMap;
+    return { 
+        expressions: exprMap, 
+        atariPoints: atariSet,
+        blackStones: b,
+        whiteStones: w
+    };
   }, [board, size]);
-
-  // 2. Separate Stones by Color for Layered Rendering
-  const { blackStones, whiteStones } = useMemo(() => {
-    const b: Position[] = [];
-    const w: Position[] = [];
-    
-    board.forEach((player, key) => {
-        const [r, c] = key.split(',').map(Number);
-        if (player === Player.Black) b.push({ row: r, col: c });
-        else w.push({ row: r, col: c });
-    });
-    
-    return { blackStones: b, whiteStones: w };
-  }, [board]);
 
   // Star points
   const starPoints = useMemo(() => {
@@ -112,6 +122,10 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             from { transform: scaleY(0); opacity: 0; }
             to { transform: scaleY(1); opacity: 1; }
          }
+         @keyframes pulse-red {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.2); }
+         }
          .animate-connect-h {
             transform-box: fill-box;
             transform-origin: center;
@@ -121,6 +135,11 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             transform-box: fill-box;
             transform-origin: center;
             animation: grow-v 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+         }
+         .animate-atari {
+            transform-box: fill-box;
+            transform-origin: center;
+            animation: pulse-red 1s infinite ease-in-out;
          }
        `}</style>
 
@@ -175,18 +194,36 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             />
           ))}
 
+          {/* Atari Markers (Underneath stones if any, usually on empty spots) */}
+          {Array.from(atariPoints).map(key => {
+             const [r, c] = key.split(',').map(Number);
+             const cx = (c + 1) * cellSize;
+             const cy = (r + 1) * cellSize;
+             const markerSize = cellSize * 0.25;
+             return (
+               <g key={`atari-${key}`} className="animate-atari">
+                  {/* Draw a red X or warning circle */}
+                  <circle cx={cx} cy={cy} r={markerSize} fill="rgba(239, 68, 68, 0.3)" />
+                  <line x1={cx-markerSize/2} y1={cy-markerSize/2} x2={cx+markerSize/2} y2={cy+markerSize/2} stroke="#ef4444" strokeWidth="3" strokeLinecap="round" />
+                  <line x1={cx+markerSize/2} y1={cy-markerSize/2} x2={cx-markerSize/2} y2={cy+markerSize/2} stroke="#ef4444" strokeWidth="3" strokeLinecap="round" />
+               </g>
+             );
+          })}
+
           {/* Render Layers (Black Stones & White Stones) */}
           <JellyLayer 
             stones={blackStones} 
             color={Player.Black} 
             cellSize={cellSize} 
             lastMove={lastMove} 
+            board={board}
           />
           <JellyLayer 
             stones={whiteStones} 
             color={Player.White} 
             cellSize={cellSize} 
             lastMove={lastMove} 
+            board={board}
           />
 
           {/* Expressions Overlay */}
