@@ -38,9 +38,9 @@ const App: React.FC = () => {
       // Update Board
       setBoard(newBoard);
 
-      // If online, send move
+      // If online, send move AND the player color explicitly
       if (conn && (gameMode === GameMode.OnlineHost || gameMode === GameMode.OnlineJoin)) {
-        conn.send({ type: 'MOVE', pos });
+        conn.send({ type: 'MOVE', pos, player: currentPlayer });
       }
       
       // Switch Turn logic
@@ -77,11 +77,10 @@ const App: React.FC = () => {
     setNetStatus('Initializing Network...');
 
     // 2. Generate a local ID to reduce server load/errors
-    // PeerJS public server often fails when asked to generate an ID
     const localId = 'cutego-' + Math.random().toString(36).substr(2, 6);
 
     const peerConfig = {
-      debug: 1, // Reduced debug level
+      debug: 1, 
       config: {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
@@ -113,14 +112,11 @@ const App: React.FC = () => {
 
         newPeer.on('error', (err: any) => {
           console.error('Peer error:', err);
-          // Only show fatal errors to the user
           if (err.type === 'unavailable-id') {
-              // Retry with a new ID if taken (rare)
               initPeer(mode);
           } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'browser-incompatible') {
               setNetStatus(`Network Error (${err.type}). Please Retry.`);
           } else {
-              // Ignore minor errors
               console.warn("Minor peer error", err);
           }
         });
@@ -183,7 +179,8 @@ const App: React.FC = () => {
         setNetStatus('Game Started!');
         resetGame(data.size);
       } else if (data.type === 'MOVE') {
-         handleRemoteMove(data.pos);
+         // Now we accept the explicit player color from the message
+         handleRemoteMove(data.pos, data.player);
       } else if (data.type === 'SYNC_SIZE') {
           setSize(data.size);
           resetGame(data.size);
@@ -201,17 +198,14 @@ const App: React.FC = () => {
     });
   };
 
-  const handleRemoteMove = (pos: Position) => {
+  // Fixed: Accept explicit player type to avoid state inference issues
+  const handleRemoteMove = (pos: Position, playerWhoMoved: Player) => {
      setBoard(currentBoard => {
-         let mover = Player.Black;
-         setMyNetPlayer(me => {
-             if (me) mover = me === Player.Black ? Player.White : Player.Black;
-             return me;
-         });
-         
-         const res = executeMove(currentBoard, size, pos, mover);
+         const res = executeMove(currentBoard, size, pos, playerWhoMoved);
          if (res.valid) {
-             setCurrentPlayer(mover === Player.Black ? Player.White : Player.Black);
+             // Force update current player to the OTHER player locally
+             const nextPlayer = playerWhoMoved === Player.Black ? Player.White : Player.Black;
+             setCurrentPlayer(nextPlayer);
              return res.newBoard;
          }
          return currentBoard;
