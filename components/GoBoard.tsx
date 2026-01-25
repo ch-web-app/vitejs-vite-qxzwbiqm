@@ -86,23 +86,30 @@ export const GoBoard: React.FC<GoBoardProps> = ({
        
        {/* Animation Styles */}
        <style>{`
-         @keyframes jelly-pop {
-            0% { transform: scale(0); opacity: 0; }
-            60% { transform: scale(1.15); }
-            100% { transform: scale(1); opacity: 1; }
+         @keyframes grow-h {
+            from { transform: scaleX(0); opacity: 0; }
+            to { transform: scaleX(1); opacity: 1; }
          }
-         @keyframes draw-connection {
-            from { stroke-dashoffset: 200; opacity: 0; }
-            to { stroke-dashoffset: 0; opacity: 0.6; }
+         @keyframes grow-v {
+            from { transform: scaleY(0); opacity: 0; }
+            to { transform: scaleY(1); opacity: 1; }
          }
-         .animate-pop {
-            transform-origin: center;
+         @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+         }
+         .animate-connect-h {
             transform-box: fill-box;
-            animation: jelly-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            transform-origin: center;
+            animation: grow-h 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
          }
-         .animate-draw {
-            stroke-dasharray: 200;
-            animation: draw-connection 0.5s ease-out forwards;
+         .animate-connect-v {
+            transform-box: fill-box;
+            transform-origin: center;
+            animation: grow-v 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+         }
+         .animate-line {
+            animation: fade-in 0.5s ease-out forwards;
          }
        `}</style>
 
@@ -168,10 +175,6 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             const cy = (p.row + 1) * cellSize;
             const player = board.get(key);
             
-            // Should animate if this is the last move? 
-            // The JellyGroup handles the main animation, but we can make the face pop too.
-            const isLast = lastMove && lastMove.row === p.row && lastMove.col === p.col;
-            
             return (
               <text 
                 key={key}
@@ -182,7 +185,6 @@ export const GoBoard: React.FC<GoBoardProps> = ({
                 fontSize={cellSize * 0.28}
                 fontWeight="700"
                 fill={player === Player.Black ? "white" : "#333"}
-                className={isLast ? "animate-pop" : ""}
                 style={{ 
                   pointerEvents: 'none', 
                   textShadow: '0px 1px 2px rgba(0,0,0,0.3)',
