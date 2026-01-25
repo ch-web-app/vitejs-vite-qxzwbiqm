@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { BoardState, Position, Player, posKey, GameMode } from '../types';
 import { getAllGroups } from '../services/goLogic';
-import { JellyGroup } from './JellyGroup';
+import { JellyLayer } from './JellyGroup';
 
 interface GoBoardProps {
   size: number;
@@ -24,8 +24,8 @@ export const GoBoard: React.FC<GoBoardProps> = ({
 
   // --- Calculations ---
   
-  // Calculate groups and expressions
-  const { groups, expressions } = useMemo(() => {
+  // 1. Calculate Faces (Expressions) - Still based on logical groups
+  const expressions = useMemo(() => {
     const allGroups = getAllGroups(board, size);
     const exprMap = new Map<string, string>(); // leaderPos -> expression
 
@@ -45,8 +45,22 @@ export const GoBoard: React.FC<GoBoardProps> = ({
       }
     });
 
-    return { groups: allGroups, expressions: exprMap };
+    return exprMap;
   }, [board, size]);
+
+  // 2. Separate Stones by Color for Layered Rendering
+  const { blackStones, whiteStones } = useMemo(() => {
+    const b: Position[] = [];
+    const w: Position[] = [];
+    
+    board.forEach((player, key) => {
+        const [r, c] = key.split(',').map(Number);
+        if (player === Player.Black) b.push({ row: r, col: c });
+        else w.push({ row: r, col: c });
+    });
+    
+    return { blackStones: b, whiteStones: w };
+  }, [board]);
 
   // Star points
   const starPoints = useMemo(() => {
@@ -70,7 +84,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   
   // Dynamic filter parameters based on cell size
   const blurRadius = cellSize * 0.12; 
-  const strokeWidth = 2.5; // Fixed stroke width often looks cleaner, or use cellSize * 0.04
+  const strokeWidth = 2.5; 
 
   const handleTap = (r: number, c: number) => {
     if (isThinking) return;
@@ -98,10 +112,6 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             from { transform: scaleY(0); opacity: 0; }
             to { transform: scaleY(1); opacity: 1; }
          }
-         @keyframes fade-in {
-            from { opacity: 0; }
-            to { opacity: 1; }
-         }
          .animate-connect-h {
             transform-box: fill-box;
             transform-origin: center;
@@ -121,19 +131,18 @@ export const GoBoard: React.FC<GoBoardProps> = ({
           <defs>
              {/* Gooey Filter for Organic Fusion */}
              <filter id="gooey-stone" x="-50%" y="-50%" width="200%" height="200%">
-                {/* 1. Blur the input shapes to blend them */}
+                {/* 1. Blur to blend shapes */}
                 <feGaussianBlur in="SourceGraphic" stdDeviation={blurRadius} result="blur" />
                 
-                {/* 2. Threshold alpha to sharpen the edges (create the blob) */}
-                {/* The matrix 18 -7 sharpens the blur: alpha * 18 - 7 */}
+                {/* 2. Sharpen threshold to create organic edges */}
                 <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -9" result="goo" />
                 
-                {/* 3. Create the black border outline */}
+                {/* 3. Create black border */}
                 <feMorphology in="goo" operator="dilate" radius={strokeWidth} result="thick" />
                 <feFlood floodColor="black" result="black" />
                 <feComposite in="black" in2="thick" operator="in" result="border_layer" />
                 
-                {/* 4. Merge Border behind the Goo shape */}
+                {/* 4. Merge */}
                 <feMerge>
                    <feMergeNode in="border_layer" />
                    <feMergeNode in="goo" />
@@ -166,17 +175,21 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             />
           ))}
 
-          {/* Stones (Jelly Groups) */}
-          {groups.map((group, i) => (
-             <JellyGroup 
-                key={i} 
-                group={group} 
-                cellSize={cellSize} 
-                lastMove={lastMove}
-             />
-          ))}
+          {/* Render Layers (Black Stones & White Stones) */}
+          <JellyLayer 
+            stones={blackStones} 
+            color={Player.Black} 
+            cellSize={cellSize} 
+            lastMove={lastMove} 
+          />
+          <JellyLayer 
+            stones={whiteStones} 
+            color={Player.White} 
+            cellSize={cellSize} 
+            lastMove={lastMove} 
+          />
 
-          {/* Expressions */}
+          {/* Expressions Overlay */}
           {Array.from(expressions).map(([key, face]) => {
             const p = JSON.parse(`{"row":${key.split(',')[0]},"col":${key.split(',')[1]}}`);
             const cx = (p.col + 1) * cellSize;
