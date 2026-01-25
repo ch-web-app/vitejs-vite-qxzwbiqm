@@ -1,147 +1,126 @@
 import React from 'react';
-import { GroupInfo, Player, Position, posKey, isSamePos } from '../types';
+import { Player, Position, posKey, isSamePos } from '../types';
 
-interface JellyGroupProps {
-  group: GroupInfo;
+interface JellyLayerProps {
+  stones: Position[];
+  color: Player;
   cellSize: number;
   lastMove?: Position | null;
 }
 
-export const JellyGroup: React.FC<JellyGroupProps> = ({ group, cellSize, lastMove }) => {
-  const { stones, player } = group;
-  
+// Helper to check if a specific position exists in the set
+const hasPos = (set: Set<string>, r: number, c: number) => set.has(`${r},${c}`);
+
+export const JellyLayer: React.FC<JellyLayerProps> = ({ stones, color, cellSize, lastMove }) => {
   const stoneSet = new Set(stones.map(posKey));
   
-  // Radius: Slightly larger to account for filter erosion
+  // Radius for the main stone body
   const r = cellSize * 0.46; 
   
-  // Bridge thickness: Used for the "flesh" fusion
-  const bridgeThickness = cellSize * 0.45;
-
-  const fillColor = player === Player.Black ? "#4b5563" : "#ffffff"; 
+  // Thickness for Orthogonal connections (Fused/Melting look)
+  const thickBridge = cellSize * 0.45;
   
-  // "Qi" Line color: distinct from the body to show the connection clearly
-  // For black stones, use a semi-transparent light gray.
-  // For white stones, use a semi-transparent dark gray.
-  const qiLineColor = player === Player.Black ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.15)";
+  // Thickness for Diagonal connections (Related/Linked look)
+  // Much thinner to create the "bone/ligament" effect after filtering
+  const thinLink = cellSize * 0.18; 
 
-  const jellyShapes: React.ReactElement[] = [];
-  const qiLines: React.ReactElement[] = [];
+  const fillColor = color === Player.Black ? "#4b5563" : "#ffffff"; 
+  
+  const shapes: React.ReactElement[] = [];
 
   stones.forEach(s => {
     const cx = (s.col + 1) * cellSize;
     const cy = (s.row + 1) * cellSize;
     const key = posKey(s);
+    
+    // Check neighbors
+    const hasRight = hasPos(stoneSet, s.row, s.col + 1);
+    const hasDown = hasPos(stoneSet, s.row + 1, s.col);
+    const hasLeft = hasPos(stoneSet, s.row, s.col - 1);
+    const hasUp = hasPos(stoneSet, s.row - 1, s.col);
 
-    // 1. The Stone Body
-    jellyShapes.push(
+    // Check Diagonals
+    const hasDownRight = hasPos(stoneSet, s.row + 1, s.col + 1);
+    const hasDownLeft = hasPos(stoneSet, s.row + 1, s.col - 1);
+
+    // Animation check
+    const isThisNew = isSamePos(s, lastMove);
+
+    // 1. Render the Stone Circle
+    shapes.push(
       <circle key={`stone-${key}`} cx={cx} cy={cy} r={r} fill={fillColor} />
     );
 
-    // 2. Connections
-    const rightPos = { row: s.row, col: s.col + 1 };
-    const rightKey = posKey(rightPos);
-    
-    const downPos = { row: s.row + 1, col: s.col };
-    const downKey = posKey(downPos);
-    
-    const diagKey = posKey({ row: s.row + 1, col: s.col + 1 });
-    
-    const hasRight = stoneSet.has(rightKey);
-    const hasDown = stoneSet.has(downKey);
-
-    // --- Horizontal Connection ---
+    // 2. Render Orthogonal "Fused" Connections (Thick Rects)
+    // We only draw Right and Down to avoid duplicates
     if (hasRight) {
-        const isNew = isSamePos(s, lastMove) || isSamePos(rightPos, lastMove);
-        const animClass = isNew ? 'animate-connect-h' : '';
-
-        // A. The "Flesh" (Bridge for fusion)
-        jellyShapes.push(
+        const isRightNew = isSamePos({row: s.row, col: s.col + 1}, lastMove);
+        shapes.push(
             <rect 
                 key={`h-bridge-${key}`}
-                x={cx} 
-                y={cy - bridgeThickness / 2}
-                width={cellSize} 
-                height={bridgeThickness}
+                x={cx} y={cy - thickBridge / 2}
+                width={cellSize} height={thickBridge}
                 fill={fillColor}
-                className={animClass}
-            />
-        );
-
-        // B. The "Qi" (Skeleton Line)
-        // Drawn separately so it doesn't get blurred by the filter
-        qiLines.push(
-            <line 
-                key={`h-line-${key}`}
-                x1={cx} y1={cy}
-                x2={cx + cellSize} y2={cy}
-                stroke={qiLineColor}
-                strokeWidth={cellSize * 0.1}
-                strokeLinecap="round"
-                // Optional: apply simple fade-in if it's new, but keep it subtle
-                style={{ opacity: isNew ? 0 : 1, animation: isNew ? 'fade-in 0.5s forwards 0.2s' : 'none' }}
+                className={isThisNew || isRightNew ? 'animate-connect-h' : ''}
             />
         );
     }
 
-    // --- Vertical Connection ---
     if (hasDown) {
-        const isNew = isSamePos(s, lastMove) || isSamePos(downPos, lastMove);
-        const animClass = isNew ? 'animate-connect-v' : '';
-
-        // A. The "Flesh" (Bridge for fusion)
-        jellyShapes.push(
+        const isDownNew = isSamePos({row: s.row + 1, col: s.col}, lastMove);
+        shapes.push(
             <rect 
                 key={`v-bridge-${key}`}
-                x={cx - bridgeThickness / 2} 
-                y={cy}
-                width={bridgeThickness} 
-                height={cellSize}
+                x={cx - thickBridge / 2} y={cy}
+                width={thickBridge} height={cellSize}
                 fill={fillColor}
-                className={animClass}
-            />
-        );
-
-        // B. The "Qi" (Skeleton Line)
-        qiLines.push(
-            <line 
-                key={`v-line-${key}`}
-                x1={cx} y1={cy}
-                x2={cx} y2={cy + cellSize}
-                stroke={qiLineColor}
-                strokeWidth={cellSize * 0.1}
-                strokeLinecap="round"
-                style={{ opacity: isNew ? 0 : 1, animation: isNew ? 'fade-in 0.5s forwards 0.2s' : 'none' }}
+                className={isThisNew || isDownNew ? 'animate-connect-v' : ''}
             />
         );
     }
 
-    // --- 2x2 Gap Filler ---
-    if (hasRight && hasDown && stoneSet.has(diagKey)) {
-        const gapSize = cellSize * 0.5;
-        jellyShapes.push(
-            <rect 
-                key={`gap-${key}`}
-                x={cx} y={cy}
-                width={gapSize} height={gapSize}
-                fill={fillColor}
+    // 3. Render Diagonal "Related" Connections (Thin Lines)
+    // Logic: Only connect diagonally if they are NOT sharing a common orthogonal neighbor.
+    // This prevents drawing an X inside a solid 2x2 block.
+    
+    // Case: Down-Right
+    if (hasDownRight && !hasRight && !hasDown) {
+        // Draw line to bottom-right
+        const endX = cx + cellSize;
+        const endY = cy + cellSize;
+        shapes.push(
+            <line 
+                key={`diag-dr-${key}`}
+                x1={cx} y1={cy}
+                x2={endX} y2={endY}
+                stroke={fillColor}
+                strokeWidth={thinLink}
+                strokeLinecap="round"
+            />
+        );
+    }
+
+    // Case: Down-Left
+    if (hasDownLeft && !hasLeft && !hasDown) {
+        // Draw line to bottom-left
+        const endX = cx - cellSize;
+        const endY = cy + cellSize;
+        shapes.push(
+            <line 
+                key={`diag-dl-${key}`}
+                x1={cx} y1={cy}
+                x2={endX} y2={endY}
+                stroke={fillColor}
+                strokeWidth={thinLink}
+                strokeLinecap="round"
             />
         );
     }
   });
 
   return (
-    <g>
-        {/* Layer 1: The organic fused shape (The "Flesh") */}
-        <g filter="url(#gooey-stone)">
-            {jellyShapes}
-        </g>
-        
-        {/* Layer 2: The internal connection lines (The "Qi" / Skeleton) */}
-        {/* Rendered on top, crisp and sharp */}
-        <g pointerEvents="none">
-            {qiLines}
-        </g>
+    <g filter="url(#gooey-stone)">
+        {shapes}
     </g>
   );
 };
