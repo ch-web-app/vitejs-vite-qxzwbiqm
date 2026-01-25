@@ -68,6 +68,10 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   const gridSize = containerSize - (padding * 2);
   const cellSize = gridSize / (size + 1); 
   
+  // Dynamic filter parameters based on cell size
+  const blurRadius = cellSize * 0.12; 
+  const strokeWidth = 2.5; // Fixed stroke width often looks cleaner, or use cellSize * 0.04
+
   const handleTap = (r: number, c: number) => {
     if (isThinking) return;
     
@@ -94,22 +98,15 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             from { transform: scaleY(0); opacity: 0; }
             to { transform: scaleY(1); opacity: 1; }
          }
-         @keyframes fade-in {
-            from { opacity: 0; }
-            to { opacity: 1; }
-         }
          .animate-connect-h {
             transform-box: fill-box;
             transform-origin: center;
-            animation: grow-h 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation: grow-h 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
          }
          .animate-connect-v {
             transform-box: fill-box;
             transform-origin: center;
-            animation: grow-v 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-         }
-         .animate-line {
-            animation: fade-in 0.5s ease-out forwards;
+            animation: grow-v 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
          }
        `}</style>
 
@@ -118,17 +115,24 @@ export const GoBoard: React.FC<GoBoardProps> = ({
          className="absolute inset-0 w-full h-full"
        >
           <defs>
-             <filter id="stone-border">
-                {/* Dilate source alpha to create the border shape */}
-                <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated" />
-                {/* Color it black */}
-                <feFlood floodColor="black" result="flood" />
-                {/* Cut to the shape */}
-                <feComposite in="flood" in2="dilated" operator="in" result="outline" />
-                {/* Merge original on top */}
+             {/* Gooey Filter for Organic Fusion */}
+             <filter id="gooey-stone" x="-50%" y="-50%" width="200%" height="200%">
+                {/* 1. Blur the input shapes to blend them */}
+                <feGaussianBlur in="SourceGraphic" stdDeviation={blurRadius} result="blur" />
+                
+                {/* 2. Threshold alpha to sharpen the edges (create the blob) */}
+                {/* The matrix 18 -7 sharpens the blur: alpha * 18 - 7 */}
+                <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -9" result="goo" />
+                
+                {/* 3. Create the black border outline */}
+                <feMorphology in="goo" operator="dilate" radius={strokeWidth} result="thick" />
+                <feFlood floodColor="black" result="black" />
+                <feComposite in="black" in2="thick" operator="in" result="border_layer" />
+                
+                {/* 4. Merge Border behind the Goo shape */}
                 <feMerge>
-                   <feMergeNode in="outline" />
-                   <feMergeNode in="SourceGraphic" />
+                   <feMergeNode in="border_layer" />
+                   <feMergeNode in="goo" />
                 </feMerge>
              </filter>
           </defs>
