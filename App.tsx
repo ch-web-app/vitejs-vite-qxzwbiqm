@@ -68,11 +68,20 @@ const App: React.FC = () => {
   // --- Network Logic ---
 
   const initPeer = (mode: GameMode) => {
-    if (peerRef.current) peerRef.current.destroy();
+    // 1. Clean up existing peer
+    if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+    }
 
-    // Configure Peer with explicit STUN servers to improve connectivity
+    setNetStatus('Initializing Network...');
+
+    // 2. Generate a local ID to reduce server load/errors
+    // PeerJS public server often fails when asked to generate an ID
+    const localId = 'cutego-' + Math.random().toString(36).substr(2, 6);
+
     const peerConfig = {
-      debug: 2,
+      debug: 1, // Reduced debug level
       config: {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
@@ -81,50 +90,76 @@ const App: React.FC = () => {
       }
     };
 
-    const newPeer = new window.Peer(null, peerConfig);
-    peerRef.current = newPeer;
+    try {
+        const newPeer = new window.Peer(localId, peerConfig);
+        peerRef.current = newPeer;
 
-    newPeer.on('open', (id: string) => {
-      setPeerId(id);
-      setNetStatus(mode === GameMode.OnlineHost ? 'Waiting for opponent...' : 'Ready to join...');
-    });
-
-    newPeer.on('connection', (connection: any) => {
-      if (mode === GameMode.OnlineHost) {
-        setNetStatus('Connecting to opponent...');
-        // Pass a callback to run ONLY when connection is fully OPEN
-        setupConnection(connection, () => {
-            setNetStatus('Connected!');
-            setMyNetPlayer(Player.Black);
-            // Send initial config safely
-            connection.send({ type: 'START', size, player: Player.White });
+        newPeer.on('open', (id: string) => {
+          console.log('My Peer ID is: ' + id);
+          setPeerId(id);
+          setNetStatus(mode === GameMode.OnlineHost ? 'Waiting for opponent...' : 'Ready to join...');
         });
-      }
-    });
 
-    newPeer.on('error', (err: any) => {
-      console.error(err);
-      if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
-          setNetStatus('Network Error. Please retry.');
-      } else {
-          setNetStatus('Error: ' + err.type);
-      }
-    });
+        newPeer.on('connection', (connection: any) => {
+          if (mode === GameMode.OnlineHost) {
+            setNetStatus('Connecting to opponent...');
+            setupConnection(connection, () => {
+                setNetStatus('Connected!');
+                setMyNetPlayer(Player.Black);
+                connection.send({ type: 'START', size, player: Player.White });
+            });
+          }
+        });
+
+        newPeer.on('error', (err: any) => {
+          console.error('Peer error:', err);
+          // Only show fatal errors to the user
+          if (err.type === 'unavailable-id') {
+              // Retry with a new ID if taken (rare)
+              initPeer(mode);
+          } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'browser-incompatible') {
+              setNetStatus(`Network Error (${err.type}). Please Retry.`);
+          } else {
+              // Ignore minor errors
+              console.warn("Minor peer error", err);
+          }
+        });
+        
+        newPeer.on('disconnected', () => {
+             if (peerRef.current && !peerRef.current.destroyed) {
+                 peerRef.current.reconnect();
+             }
+        });
+
+    } catch (e) {
+        setNetStatus('Failed to load PeerJS');
+        console.error(e);
+    }
   };
 
   const joinGame = () => {
     if (!remotePeerId || !peerRef.current) return;
     
-    // IMPORTANT: Trim whitespace to prevent ID mismatch errors
     const cleanId = remotePeerId.trim();
     if (!cleanId) return;
 
     setNetStatus('Connecting...');
-    const connection = peerRef.current.connect(cleanId, { reliable: true });
     
-    setupConnection(connection, () => {
-        setNetStatus('Connected! Waiting for host...');
-    });
+    try {
+        const connection = peerRef.current.connect(cleanId, { reliable: true });
+        
+        if (!connection) {
+            setNetStatus('Connection Failed (local)');
+            return;
+        }
+
+        setupConnection(connection, () => {
+            setNetStatus('Connected! Waiting for host...');
+        });
+    } catch (e) {
+        console.error(e);
+        setNetStatus('Connection Failed');
+    }
   };
 
   const setupConnection = (connection: any, onOpen?: () => void) => {
@@ -135,7 +170,6 @@ const App: React.FC = () => {
       if (onOpen) onOpen();
     };
 
-    // Check if already open (race condition fix)
     if (connection.open) {
       handleOpen();
     } else {
@@ -145,7 +179,7 @@ const App: React.FC = () => {
     connection.on('data', (data: any) => {
       if (data.type === 'START') {
         setSize(data.size);
-        setMyNetPlayer(data.player); // Usually White for joiner
+        setMyNetPlayer(data.player);
         setNetStatus('Game Started!');
         resetGame(data.size);
       } else if (data.type === 'MOVE') {
@@ -167,10 +201,8 @@ const App: React.FC = () => {
     });
   };
 
-  // Helper to handle remote move avoiding closure staleness
   const handleRemoteMove = (pos: Position) => {
      setBoard(currentBoard => {
-         // Determine who moved. If I am Black, remote is White.
          let mover = Player.Black;
          setMyNetPlayer(me => {
              if (me) mover = me === Player.Black ? Player.White : Player.Black;
@@ -186,14 +218,12 @@ const App: React.FC = () => {
      });
   };
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (peerRef.current) peerRef.current.destroy();
     };
   }, []);
   
-  // Re-sync size changes if hosting
   useEffect(() => {
      if (gameMode === GameMode.OnlineHost && conn && conn.open) {
          conn.send({ type: 'SYNC_SIZE', size });
@@ -214,33 +244,33 @@ const App: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center bg-amber-50 p-4">
         <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full text-center space-y-8">
           <h1 className="text-5xl font-black text-amber-600 tracking-tight font-rounded">CuteGo</h1>
-          <p className="text-gray-500 font-bold">Select a Mode</p>
+          <p className="text-gray-500 font-bold">选择模式</p>
           
           <div className="space-y-4">
             <button 
               onClick={() => { setGameMode(GameMode.Local); resetGame(); }}
               className="w-full flex items-center justify-center gap-3 p-4 bg-amber-100 text-amber-800 rounded-xl font-bold hover:bg-amber-200 transition-colors"
             >
-              <User /> Pass & Play
+              <User /> 双人同屏
             </button>
             <button 
                onClick={() => { setGameMode(GameMode.AI); resetGame(); }}
               className="w-full flex items-center justify-center gap-3 p-4 bg-blue-100 text-blue-800 rounded-xl font-bold hover:bg-blue-200 transition-colors"
             >
-              <Cpu /> vs AI
+              <Cpu /> 挑战 AI
             </button>
             <div className="grid grid-cols-2 gap-4">
                 <button 
                    onClick={() => { setGameMode(GameMode.OnlineHost); initPeer(GameMode.OnlineHost); resetGame(); }}
                   className="flex flex-col items-center gap-2 p-4 bg-purple-100 text-purple-800 rounded-xl font-bold hover:bg-purple-200 transition-colors"
                 >
-                  <Wifi /> Host
+                  <Wifi /> 创建房间
                 </button>
                 <button 
                    onClick={() => { setGameMode(GameMode.OnlineJoin); initPeer(GameMode.OnlineJoin); resetGame(); }}
                   className="flex flex-col items-center gap-2 p-4 bg-purple-100 text-purple-800 rounded-xl font-bold hover:bg-purple-200 transition-colors"
                 >
-                  <Wifi /> Join
+                  <Wifi /> 加入房间
                 </button>
             </div>
           </div>
@@ -249,13 +279,11 @@ const App: React.FC = () => {
     );
   }
 
-  // Score Calculation
   const blackScore = Array.from(board.values()).filter(p => p === Player.Black).length;
   const whiteScore = Array.from(board.values()).filter(p => p === Player.White).length;
 
   return (
     <div className="min-h-screen bg-amber-50 flex flex-col">
-      {/* Header */}
       <div className="bg-white px-6 py-4 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-4">
             <button onClick={() => { 
@@ -268,7 +296,6 @@ const App: React.FC = () => {
             <h1 className="text-2xl font-black text-gray-800 hidden sm:block">CuteGo</h1>
         </div>
 
-        {/* Score Board */}
         <div className="flex gap-6 text-sm font-bold bg-gray-100 px-4 py-2 rounded-full">
             <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-gray-900"></div>
@@ -280,7 +307,6 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        {/* Controls */}
         <div className="flex items-center gap-4">
              {gameMode !== GameMode.OnlineJoin && (
                  <select 
@@ -290,7 +316,7 @@ const App: React.FC = () => {
                         setSize(s);
                         resetGame(s);
                     }}
-                    disabled={gameMode === GameMode.OnlineHost && !!conn} // Disable resize if connected for simplicity
+                    disabled={gameMode === GameMode.OnlineHost && !!conn} 
                     className="bg-gray-100 font-bold text-gray-700 text-sm py-2 px-3 rounded-lg border-none focus:ring-2 focus:ring-amber-500"
                  >
                     {BOARD_SIZES.map(s => <option key={s} value={s}>{s}x{s}</option>)}
@@ -299,27 +325,28 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Online Lobby Area */}
       {(gameMode === GameMode.OnlineHost || gameMode === GameMode.OnlineJoin) && !conn && (
           <div className="bg-purple-50 p-4 text-center border-b border-purple-100 animate-in fade-in slide-in-from-top-4">
               <p className={`font-bold mb-2 ${netStatus.includes('Error') ? 'text-red-600' : 'text-purple-900'}`}>{netStatus}</p>
               
-              {/* Retry Logic */}
               {netStatus.includes('Error') && (
                    <button 
                      onClick={() => initPeer(gameMode)}
                      className="flex items-center gap-2 mx-auto bg-white text-red-600 px-4 py-2 rounded-lg border border-red-200 shadow-sm hover:bg-red-50 font-bold mb-4"
                    >
-                     <RefreshCw size={16} /> Retry Connection
+                     <RefreshCw size={16} /> 重试连接
                    </button>
               )}
 
               {gameMode === GameMode.OnlineHost && peerId && !netStatus.includes('Error') && (
-                  <div className="flex items-center justify-center gap-2">
-                      <code className="bg-white px-3 py-1 rounded border border-purple-200 text-purple-800">{peerId}</code>
-                      <button onClick={copyToClipboard} className="text-purple-600 hover:bg-purple-100 p-1 rounded">
-                          {copied ? <CheckCircle2 size={18} /> : <Copy size={18} />}
-                      </button>
+                  <div className="flex flex-col items-center gap-2">
+                      <div className="text-sm text-purple-700 mb-1">将此 ID 发送给朋友：</div>
+                      <div className="flex items-center justify-center gap-2">
+                          <code className="bg-white px-3 py-2 rounded border border-purple-200 text-purple-800 font-mono text-lg">{peerId}</code>
+                          <button onClick={copyToClipboard} className="text-purple-600 hover:bg-purple-100 p-2 rounded bg-white border border-purple-200">
+                              {copied ? <CheckCircle2 size={20} /> : <Copy size={20} />}
+                          </button>
+                      </div>
                   </div>
               )}
               {gameMode === GameMode.OnlineJoin && !netStatus.includes('Error') && (
@@ -327,31 +354,28 @@ const App: React.FC = () => {
                       <input 
                         value={remotePeerId}
                         onChange={e => setRemotePeerId(e.target.value)}
-                        placeholder="Enter Host ID"
+                        placeholder="输入房主 ID"
                         className="px-3 py-1 rounded border border-purple-300 focus:outline-purple-500"
                       />
-                      <button onClick={joinGame} className="bg-purple-600 text-white px-4 py-1 rounded font-bold hover:bg-purple-700">Connect</button>
+                      <button onClick={joinGame} className="bg-purple-600 text-white px-4 py-1 rounded font-bold hover:bg-purple-700">连接</button>
                   </div>
               )}
           </div>
       )}
 
-      {/* Main Game Area */}
       <div className="flex-1 flex flex-col items-center justify-center p-4">
-        
-        {/* Status Indicator */}
         <div className="mb-6 text-xl font-bold text-gray-600 flex items-center gap-2 h-8">
             {isThinking ? (
-                <span className="text-blue-500 animate-pulse">AI is thinking ( •̀ ω •́ )</span>
+                <span className="text-blue-500 animate-pulse">AI 正在思考 ( •̀ ω •́ )</span>
             ) : (
                 <>
-                   <span>Turn:</span>
+                   <span>轮到:</span>
                    <span className={`px-3 py-1 rounded-full text-white text-sm ${currentPlayer === Player.Black ? 'bg-gray-800' : 'bg-gray-400'}`}>
-                     {currentPlayer === Player.Black ? "Black" : "White"}
+                     {currentPlayer === Player.Black ? "黑子" : "白子"}
                    </span>
                    {myNetPlayer && (
                        <span className="text-xs text-gray-400 ml-2">
-                           (You are {myNetPlayer})
+                           (你是 {myNetPlayer === Player.Black ? "黑子" : "白子"})
                        </span>
                    )}
                 </>
@@ -373,7 +397,7 @@ const App: React.FC = () => {
                 onClick={() => resetGame()} 
                 className="px-6 py-2 bg-amber-200 text-amber-900 rounded-full font-bold hover:bg-amber-300 transition-transform active:scale-95"
             >
-                Reset Board
+                重置棋盘
             </button>
         </div>
       </div>
