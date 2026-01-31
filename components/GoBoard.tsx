@@ -57,28 +57,45 @@ export const GoBoard: React.FC<GoBoardProps> = ({
     
     const groups = getAllGroups(board, size);
     const markers: React.ReactElement[] = [];
-    const processedLibs = new Set<string>();
+    
+    // Map to track ownership: 0=None, 1=Black, 2=White, 3=Both
+    const libOwners = new Map<string, number>();
 
     groups.forEach(group => {
+        const val = group.player === Player.Black ? 1 : 2;
         group.liberties.forEach(lib => {
             const k = posKey(lib);
-            // Avoid drawing multiple dots on the same intersection if shared by groups
-            // However, visually simple is better. 
-            if (!processedLibs.has(k)) {
-                processedLibs.add(k);
-                 markers.push(
-                    <circle 
-                        key={`lib-${k}`}
-                        cx={(lib.col + 1) * cellSize}
-                        cy={(lib.row + 1) * cellSize}
-                        r={cellSize * 0.12}
-                        fill="#EF4444" // Red-500
-                        opacity={0.6}
-                        className="animate-pulse"
-                    />
-                 );
-            }
+            const current = libOwners.get(k) || 0;
+            libOwners.set(k, current | val);
         });
+    });
+
+    libOwners.forEach((val, k) => {
+        const {row, col} = keyToPos(k);
+        let fillColor = '';
+        
+        // Color coding for liberties:
+        // Black's liberties: Blue
+        // White's liberties: Red
+        // Shared (Dame): Purple
+        if (val === 3) fillColor = '#A855F7'; // Purple-500 (Shared)
+        else if (val === 1) fillColor = '#3B82F6'; // Blue-500 (Black)
+        else if (val === 2) fillColor = '#EF4444'; // Red-500 (White)
+        
+        if (fillColor) {
+             markers.push(
+                <circle 
+                    key={`lib-${k}`}
+                    cx={(col + 1) * cellSize}
+                    cy={(row + 1) * cellSize}
+                    r={cellSize * 0.14}
+                    fill={fillColor}
+                    opacity={0.8}
+                    className="animate-pulse"
+                    style={{ filter: 'drop-shadow(0px 0px 1px rgba(255,255,255,0.7))' }}
+                />
+             );
+        }
     });
     return markers;
   }, [board, size, isReviewMode, cellSize]);
