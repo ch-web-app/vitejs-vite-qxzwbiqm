@@ -58,7 +58,12 @@ const App: React.FC = () => {
     return { bStones, wStones, bTerritory, wTerritory, bTotal, wTotal };
   }, [board, size]);
 
-  const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+  const stopTimer = useCallback(() => { 
+    if (timerRef.current) { 
+        clearInterval(timerRef.current); 
+        timerRef.current = null; 
+    } 
+  }, []);
 
   const endGame = useCallback((reason: string, manualWinner?: Player | 'Draw') => {
     stopTimer();
@@ -70,7 +75,7 @@ const App: React.FC = () => {
     const targetWinner = manualWinner || (b > w ? Player.Black : w > b ? Player.White : 'Draw');
     setWinner(targetWinner);
     setGameAnalysis(generateLocalAnalysis(targetWinner, b, w, board, size));
-  }, [board, scoringData, size]);
+  }, [board, scoringData, size, stopTimer]);
 
   const checkAutoEndConditions = useCallback((currentBoard: BoardState) => {
     const b = scoringData.bTotal;
@@ -282,6 +287,43 @@ const App: React.FC = () => {
       setAiCandidates(candidates);
     }
   }, [board, currentPlayer, aiLevel, gameMode, isGameOver, isThinking, lastMove, persistentGuidance, guidanceDecisionMade, showGuidancePrompt, size, userPreferredColor, history]);
+
+  // Timer Effect
+  useEffect(() => {
+    if (!gameMode || isGameOver || isThinking) {
+      return;
+    }
+    
+    // 联网模式下，如果未连接成功，暂停倒计时
+    if ((gameMode === GameMode.OnlineHost || gameMode === GameMode.OnlineJoin) && netStatus !== 'connected') {
+      return;
+    }
+
+    // Explicitly start the timer and store ref
+    timerRef.current = window.setInterval(() => {
+      setTimeLeft(t => {
+        // Separate end game logic to another effect to keep this pure
+        if (t <= 0) return 0;
+        return t - 1;
+      });
+    }, 1000);
+
+    return () => {
+        if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+        }
+    };
+  }, [gameMode, isGameOver, isThinking, netStatus]);
+
+  // Check for time out separately
+  useEffect(() => {
+      if (timeLeft === 0 && !isGameOver && gameMode && !isThinking) {
+          // Double check to prevent race conditions if game ended just now
+          if ((gameMode === GameMode.OnlineHost || gameMode === GameMode.OnlineJoin) && netStatus !== 'connected') return;
+          endGame('时间耗尽');
+      }
+  }, [timeLeft, isGameOver, endGame, gameMode, isThinking, netStatus]);
 
   const startNewGame = (mode: GameMode) => {
     stopTimer();
