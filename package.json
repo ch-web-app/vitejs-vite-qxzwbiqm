@@ -1,5 +1,5 @@
 {
-  "name": "cutego-web",
+  "name": "yy-wei-qi",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,7 +11,8 @@
   "dependencies": {
     "lucide-react": "^0.563.0",
     "react-dom": "^19.2.3",
-    "react": "^19.2.3"
+    "react": "^19.2.3",
+    "@google/genai": "^1.38.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

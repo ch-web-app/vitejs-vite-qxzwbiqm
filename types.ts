@@ -1,3 +1,4 @@
+
 export enum Player {
   Black = "Black",
   White = "White"
@@ -10,12 +11,28 @@ export enum GameMode {
   OnlineJoin = "OnlineJoin"
 }
 
+export enum AiLevel {
+  Easy = "入门",
+  Medium = "进阶",
+  Hard = "大师"
+}
+
 export interface Position {
   row: number;
   col: number;
 }
 
-// Helper to use Position as a Map key string "row,col"
+export interface ScoredMove {
+  pos: Position;
+  score: number;
+}
+
+export interface BoardHistory {
+  board: BoardState;
+  player: Player;
+  lastMove: Position | null;
+}
+
 export const posKey = (p: Position): string => `${p.row},${p.col}`;
 export const keyToPos = (k: string): Position => {
   const [row, col] = k.split(',').map(Number);
@@ -37,7 +54,6 @@ export interface GroupInfo {
 
 export const BOARD_SIZES = [9, 13, 19];
 
-// Declare global PeerJS types since we are loading from CDN
 declare global {
   interface Window {
     Peer: any;
